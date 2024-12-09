@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from typing import Union
 import torch
+from glob import glob
 from torch import Tensor
 
 import server
@@ -121,9 +122,11 @@ def is_safe_path(path):
 
 def get_sorted_dir_files_from_directory(directory: str, skip_first_images: int=0, select_every_nth: int=1, extensions: Iterable=None):
     directory = strip_path(directory)
-    dir_files = os.listdir(directory)
+    if not any(char in directory for char in ['*', '?', '[', ']']):
+        directory = os.path.join(directory, '*')
+    dir_files = glob(directory)
     dir_files = sorted(dir_files)
-    dir_files = [os.path.join(directory, x) for x in dir_files]
+    # dir_files = [os.path.join(directory, x) for x in dir_files]
     dir_files = list(filter(lambda filepath: os.path.isfile(filepath), dir_files))
     # filter by extension, if needed
     if extensions is not None:

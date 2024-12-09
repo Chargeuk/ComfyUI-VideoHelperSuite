@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageOps
 import itertools
+from glob import glob
 
 import folder_paths
 from comfy.k_diffusion.utils import FolderOfImages
@@ -27,17 +28,17 @@ def is_changed_load_images(directory: str, image_load_cap: int = 0, skip_first_i
 
 
 def validate_load_images(directory: str):
-    if not os.path.isdir(directory):
-            return f"Directory '{directory}' cannot be found."
-    dir_files = os.listdir(directory)
+    # if not os.path.isdir(directory):
+    #         return f"Directory '{directory}' cannot be found."
+    dir_files = glob(directory)
     if len(dir_files) == 0:
         return f"No files in directory '{directory}'."
 
     return True
 
 def images_generator(directory: str, image_load_cap: int = 0, skip_first_images: int = 0, select_every_nth: int = 1, meta_batch=None, unique_id=None):
-    if not os.path.isdir(directory):
-        raise FileNotFoundError(f"Directory '{directory} cannot be found.")
+    # if not os.path.isdir(directory):
+    #     raise FileNotFoundError(f"Directory '{directory} cannot be found.")
     dir_files = get_sorted_dir_files_from_directory(directory, skip_first_images, select_every_nth, FolderOfImages.IMG_EXTENSIONS)
 
     if len(dir_files) == 0:

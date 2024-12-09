@@ -233,8 +233,9 @@ class VideoCombine:
             },
         }
 
-    RETURN_TYPES = ("VHS_FILENAMES",)
-    RETURN_NAMES = ("Filenames",)
+    RETURN_TYPES = ()
+    # RETURN_TYPES = ("VHS_FILENAMES",)
+    # RETURN_NAMES = ("Filenames",)
     OUTPUT_NODE = True
     CATEGORY = "Video Helper Suite 🎥🅥🅗🅢"
     FUNCTION = "combine_video"
@@ -571,8 +572,8 @@ class VideoCombine:
                 "fullpath": output_files[-1],
             }
         if num_frames == 1 and 'png' in format and '%03d' in file:
-            previews[0]['format'] = 'image/png'
-            previews[0]['filename'] = file.replace('%03d', '001')
+            preview['format'] = 'image/png'
+            preview['filename'] = file.replace('%03d', '001')
         return {"ui": {"gifs": [preview]}, "result": ((save_output, output_files),)}
     @classmethod
     def VALIDATE_INPUTS(self, format, **kwargs):
