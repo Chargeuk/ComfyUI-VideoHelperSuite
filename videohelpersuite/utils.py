@@ -124,6 +124,11 @@ def get_sorted_dir_files_from_directory(directory: str, skip_first_images: int=0
     directory = strip_path(directory)
     if not any(char in directory for char in ['*', '?', '[', ']']):
         directory = os.path.join(directory, '*')
+
+    # Print the absolute path
+    absolute_directory = os.path.abspath(directory)
+    print(f"Absolute directory path: {absolute_directory}")
+    
     dir_files = glob(directory)
     dir_files = sorted(dir_files)
     # dir_files = [os.path.join(directory, x) for x in dir_files]

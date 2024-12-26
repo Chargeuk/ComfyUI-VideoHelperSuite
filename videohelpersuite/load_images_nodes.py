@@ -30,6 +30,14 @@ def is_changed_load_images(directory: str, image_load_cap: int = 0, skip_first_i
 def validate_load_images(directory: str):
     # if not os.path.isdir(directory):
     #         return f"Directory '{directory}' cannot be found."
+    directory = strip_path(directory)
+    if not any(char in directory for char in ['*', '?', '[', ']']):
+        directory = os.path.join(directory, '*')
+
+    # Print the absolute path
+    absolute_directory = os.path.abspath(directory)
+    print(f"validate_load_images Absolute directory path: {absolute_directory}")
+    
     dir_files = glob(directory)
     if len(dir_files) == 0:
         return f"No files in directory '{directory}'."
