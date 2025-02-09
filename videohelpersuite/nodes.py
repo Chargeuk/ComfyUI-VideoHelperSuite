@@ -22,15 +22,13 @@ from .load_images_nodes import LoadImagesFromDirectoryUpload, LoadImagesFromDire
 from .batched_nodes import VAEEncodeBatched, VAEDecodeBatched
 from .utils import ffmpeg_path, get_audio, hash_path, validate_path, requeue_workflow, \
         gifski_path, calculate_file_hash, strip_path, try_download_video, is_url, \
-        imageOrLatent, BIGMAX, merge_filter_args, ENCODE_ARGS
+        imageOrLatent, BIGMAX, merge_filter_args, ENCODE_ARGS, floatOrInt
 from comfy.utils import ProgressBar
 
-folder_paths.folder_names_and_paths["VHS_video_formats"] = (
-    [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "video_formats"),
-    ],
-    [".json"]
-)
+if 'VHS_video_formats' not in folder_paths.folder_names_and_paths:
+    folder_paths.folder_names_and_paths["VHS_video_formats"] = ((),{".json"})
+if len(folder_paths.folder_names_and_paths['VHS_video_formats'][1]) == 0:
+    folder_paths.folder_names_and_paths["VHS_video_formats"][1].add(".json")
 audio_extensions = ['mp3', 'mp4', 'wav', 'ogg']
 
 def gen_format_widgets(video_format):
@@ -47,12 +45,18 @@ def gen_format_widgets(video_format):
                 yield item
                 video_format[k] = item[0]
 
+base_formats_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "video_formats")
 def get_video_formats():
-    formats = []
+    format_files = {}
     for format_name in folder_paths.get_filename_list("VHS_video_formats"):
-        format_name = format_name[:-5]
-        video_format_path = folder_paths.get_full_path("VHS_video_formats", format_name + ".json")
-        with open(video_format_path, 'r') as stream:
+        format_files[format_name] = folder_paths.get_full_path("VHS_video_formats", format_name)
+    for item in os.scandir(base_formats_dir):
+        if not item.is_file() or not item.name.endswith('.json'):
+            continue
+        format_files[item.name[:-5]] = item.path
+    formats = []
+    for format_name, path in format_files.items():
+        with open(path, 'r') as stream:
             video_format = json.load(stream)
         if "gifski_pass" in video_format and gifski_path is None:
             #Skip format
@@ -65,7 +69,10 @@ def get_video_formats():
     return formats
 
 def apply_format_widgets(format_name, kwargs):
-    video_format_path = folder_paths.get_full_path("VHS_video_formats", format_name + ".json")
+    if os.path.exists(os.path.join(base_formats_dir, format_name + ".json")):
+        video_format_path = os.path.join(base_formats_dir, format_name + ".json")
+    else:
+        video_format_path = folder_paths.get_full_path("VHS_video_formats", format_name)
     with open(video_format_path, 'r') as stream:
         video_format = json.load(stream)
     for w in gen_format_widgets(video_format):
@@ -204,7 +211,7 @@ class VideoCombine:
             "required": {
                 "images": (imageOrLatent,),
                 "frame_rate": (
-                    "FLOAT",
+                    floatOrInt,
                     {"default": 8, "min": 1, "step": 1},
                 ),
                 "loop_count": ("INT", {"default": 0, "min": 0, "max": 100, "step": 1}),
@@ -312,6 +319,9 @@ class VideoCombine:
             for x in extra_pnginfo:
                 metadata.add_text(x, json.dumps(extra_pnginfo[x]))
                 video_metadata[x] = extra_pnginfo[x]
+            extra_options = extra_pnginfo.get('workflow', {}).get('extra', {})
+        else:
+            extra_options = {}
         metadata.add_text("CreationTime", datetime.datetime.now().isoformat(" ")[:19])
 
         if meta_batch is not None and unique_id in meta_batch.outputs:
@@ -339,11 +349,12 @@ class VideoCombine:
         # save first frame as png to keep metadata
         first_image_file = f"{filename}_{counter:05}.png"
         file_path = os.path.join(full_output_folder, first_image_file)
-        Image.fromarray(tensor_to_bytes(first_image)).save(
-            file_path,
-            pnginfo=metadata,
-            compress_level=4,
-        )
+        if extra_options.get('VHS_MetadataImage', True) != False:
+            Image.fromarray(tensor_to_bytes(first_image)).save(
+                file_path,
+                pnginfo=metadata,
+                compress_level=4,
+            )
         output_files.append(file_path)
 
         format_type, format_ext = format.split("/")
@@ -399,7 +410,7 @@ class VideoCombine:
 
             video_format = apply_format_widgets(format_ext, kwargs)
             has_alpha = first_image.shape[-1] == 4
-            dim_alignment = video_format.get("dim_alignment", 8)
+            dim_alignment = video_format.get("dim_alignment", 2)
             if (first_image.shape[1] % dim_alignment) or (first_image.shape[0] % dim_alignment):
                 #output frames must be padded
                 to_pad = (-first_image.shape[1] % dim_alignment,
@@ -555,7 +566,10 @@ class VideoCombine:
                 #Return this file with audio to the webui.
                 #It will be muted unless opened or saved with right click
                 file = output_file_with_audio
-
+        if extra_options.get('VHS_KeepIntermediate', True) == False:
+            for intermediate in output_files[1:-1]:
+                if os.path.exists(intermediate):
+                    os.remove(intermediate)
         preview = {
                 "filename": file,
                 "subfolder": subfolder,
