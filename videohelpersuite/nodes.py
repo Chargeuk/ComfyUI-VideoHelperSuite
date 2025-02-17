@@ -346,14 +346,38 @@ class VideoCombine:
             counter = max_counter + 1
             output_process = None
 
-        # save first frame as png to keep metadata
-        first_image_file = f"{filename}_{counter:05}.png"
+        # Define the desired resolution
+        desired_resolution = (512, 512)  # Replace with your desired width and height
+
+        # save first frame as webp to keep metadata
+        first_image_file = f"{filename}_{counter:05}.webp"
         file_path = os.path.join(full_output_folder, first_image_file)
         if extra_options.get('VHS_MetadataImage', True) != False:
-            Image.fromarray(tensor_to_bytes(first_image)).save(
+            image = Image.fromarray(tensor_to_bytes(first_image))
+            
+            # Calculate the aspect ratio
+            aspect_ratio_height = desired_resolution[1] / image.height
+            aspect_ratio_width = desired_resolution[0] / image.width
+            aspect_ratio = max(aspect_ratio_width, aspect_ratio_height)
+            
+            # Resize the image while maintaining the aspect ratio
+            new_size = (int(image.width * aspect_ratio), int(image.height * aspect_ratio))
+            resized_image = image.resize(new_size, Image.LANCZOS)
+            
+            # Calculate the cropping box
+            left = (resized_image.width - desired_resolution[0]) / 2
+            top = (resized_image.height - desired_resolution[1]) / 2
+            right = (resized_image.width + desired_resolution[0]) / 2
+            bottom = (resized_image.height + desired_resolution[1]) / 2
+            
+            # Crop the image to the desired resolution
+            cropped_image = resized_image.crop((left, top, right, bottom))
+            
+            # Save the cropped image as a WebP file
+            cropped_image.save(
                 file_path,
-                pnginfo=metadata,
-                compress_level=4,
+                format='WEBP',
+                quality=80,  # You can adjust the quality parameter as needed
             )
         output_files.append(file_path)
 
