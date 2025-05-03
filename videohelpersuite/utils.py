@@ -4,6 +4,7 @@ from typing import Iterable
 import shutil
 import subprocess
 import re
+import time
 from collections.abc import Mapping
 from typing import Union
 import functools
@@ -54,6 +55,12 @@ class MultiInput(str):
         return other not in self.allowed_types
 imageOrLatent = MultiInput("IMAGE", ["IMAGE", "LATENT"])
 floatOrInt = MultiInput("FLOAT", ["FLOAT", "INT"])
+
+class ContainsAll(dict):
+    def __contains__(self, other):
+        return True
+    def __getitem__(self, key):
+        return super().get(key, (None, {}))
 
 if "VHS_FORCE_FFMPEG_PATH" in os.environ:
     ffmpeg_path = os.environ.get("VHS_FORCE_FFMPEG_PATH")
@@ -411,3 +418,15 @@ def hook(obj, attr):
         return f
     return dec
 
+def cached(duration):
+    def dec(f):
+        cached_ret = None
+        cache_time = 0
+        def cached_func():
+            nonlocal cache_time, cached_ret
+            if time.time() > cache_time + duration or cached_ret is None:
+                cache_time = time.time()
+                cached_ret = f()
+            return cached_ret
+        return cached_func
+    return dec

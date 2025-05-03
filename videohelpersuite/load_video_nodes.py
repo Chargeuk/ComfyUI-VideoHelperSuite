@@ -28,9 +28,10 @@ VHSLoadFormats = {
     'LTXV': {'target_rate': 24, 'dim': (32,0,768,512), 'frames':(8,1)},
     'Hunyuan': {'target_rate': 24, 'dim': (16,0,848,480), 'frames':(4,1)},
     'Cosmos': {'target_rate': 24, 'dim': (16,0,1280,704), 'frames':(8,1)},
+    'Wan': {'target_rate': 16, 'dim': (8,0,832,480), 'frames':(4,1)},
 }
 """
-External plugins may add additional formats to utils.extra_config.VHSLoadFormats
+External plugins may add additional formats to nodes.VHSLoadFormats
 In addition to shorthand options, direct widget names will map a given dict to options.
 Adding a third arguement to a frames tuple can enable strict checks on number
 of loaded frames, i.e (8,1,True)
@@ -212,7 +213,7 @@ def ffmpeg_frame_generator(video, force_rate, frame_load_cap, start_time,
         pre_seek = []
         post_seek = []
     args_all_frames = [ffmpeg_path, "-v", "error", "-an"] + pre_seek + \
-            ["-i", video, "-pix_fmt", "rgba" if alpha else "rgb24"] + post_seek
+            ["-i", video, "-pix_fmt", "rgba64le"] + post_seek
 
     vfilters = []
     if force_rate != 0:
@@ -242,7 +243,7 @@ def ffmpeg_frame_generator(video, force_rate, frame_load_cap, start_time,
     try:
         with subprocess.Popen(args_all_frames, stdout=subprocess.PIPE) as proc:
             #Manually buffer enough bytes for an image
-            bpi = size[0] * size[1] * (4 if alpha else 3)
+            bpi = size[0] * size[1] * 8
             current_bytes = bytearray(bpi)
             current_offset=0
             prev_frame = None
@@ -259,7 +260,9 @@ def ffmpeg_frame_generator(video, force_rate, frame_load_cap, start_time,
                     if prev_frame is not None:
                         yield prev_frame
                         pbar.update(1)
-                    prev_frame = np.array(current_bytes, dtype=np.float32).reshape(size[1], size[0], 4 if alpha else 3) / 255.0
+                    prev_frame = np.frombuffer(current_bytes, dtype=np.dtype(np.uint16).newbyteorder("<")).reshape(size[1], size[0], 4) / (2**16-1)
+                    if not alpha:
+                        prev_frame = prev_frame[:, :, :-1]
                     current_offset = 0
     except BrokenPipeError as e:
         raise Exception("An error occured in the ffmpeg subprocess:\n" \
@@ -343,8 +346,12 @@ def load_video(meta_batch=None, unique_id=None, memory_limit_mb=None, vae=None,
         max_loadable_frames = int(memory_limit//(width*height*3*(.1)))
     if meta_batch is not None:
         if 'frames' in format:
-            assert frames_per_batch % format['frames'][0] == format['frames'][1], \
-                   "The chosen frames per batch is incompatible with the selected format"
+            if meta_batch.frames_per_batch % format['frames'][0] != format['frames'][1]:
+                error = (meta_batch.frames_per_batch - format['frames'][1]) % format['frames'][0]
+                suggested = meta_batch.frames_per_batch - error
+                if error > format['frames'][0] / 2:
+                    suggested += format['frames'][0]
+                raise RuntimeError(f"The chosen frames per batch is incompatible with the selected format. Try {suggested}")
         if meta_batch.frames_per_batch > max_loadable_frames:
             raise RuntimeError(f"Meta Batch set to {meta_batch.frames_per_batch} frames but only {max_loadable_frames} can fit in memory")
         gen = itertools.islice(gen, meta_batch.frames_per_batch)
@@ -451,7 +458,7 @@ class LoadVideoUpload:
         return calculate_file_hash(image_path)
 
     @classmethod
-    def VALIDATE_INPUTS(s, video, **kwargs):
+    def VALIDATE_INPUTS(s, video):
         if not folder_paths.exists_annotated_filepath(video):
             return "Invalid video file: {}".format(video)
         return True
@@ -500,7 +507,7 @@ class LoadVideoPath:
         return hash_path(video)
 
     @classmethod
-    def VALIDATE_INPUTS(s, video, **kwargs):
+    def VALIDATE_INPUTS(s, video):
         return validate_path(video, allow_none=True)
 
 class LoadVideoFFmpegUpload:
@@ -534,7 +541,6 @@ class LoadVideoFFmpegUpload:
                 }
 
     CATEGORY = "Video Helper Suite 🎥🅥🅗🅢"
-    EXPERIMENTAL=True
 
     RETURN_TYPES = (imageOrLatent, "MASK", "AUDIO", "VHS_VIDEOINFO")
     RETURN_NAMES = ("IMAGE", "mask", "audio", "video_info")
@@ -554,7 +560,7 @@ class LoadVideoFFmpegUpload:
         return calculate_file_hash(image_path)
 
     @classmethod
-    def VALIDATE_INPUTS(s, video, **kwargs):
+    def VALIDATE_INPUTS(s, video):
         if not folder_paths.exists_annotated_filepath(video):
             return "Invalid video file: {}".format(video)
         return True
@@ -584,7 +590,6 @@ class LoadVideoFFmpegPath:
         }
 
     CATEGORY = "Video Helper Suite 🎥🅥🅗🅢"
-    EXPERIMENTAL=True
 
     RETURN_TYPES = (imageOrLatent, "MASK", "AUDIO", "VHS_VIDEOINFO")
     RETURN_NAMES = ("IMAGE", "mask", "audio", "video_info")
@@ -608,7 +613,7 @@ class LoadVideoFFmpegPath:
         return hash_path(video)
 
     @classmethod
-    def VALIDATE_INPUTS(s, video, **kwargs):
+    def VALIDATE_INPUTS(s, video):
         return validate_path(video, allow_none=True)
 
 class LoadImagePath:
@@ -629,7 +634,6 @@ class LoadImagePath:
         }
 
     CATEGORY = "Video Helper Suite 🎥🅥🅗🅢"
-    EXPERIMENTAL=True
 
     RETURN_TYPES = (imageOrLatent, "MASK")
     RETURN_NAMES = ("IMAGE", "mask")
@@ -654,5 +658,5 @@ class LoadImagePath:
         return hash_path(image)
 
     @classmethod
-    def VALIDATE_INPUTS(s, image, **kwargs):
+    def VALIDATE_INPUTS(s, image):
         return validate_path(image, allow_none=True)

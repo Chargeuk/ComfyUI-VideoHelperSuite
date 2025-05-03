@@ -32,7 +32,7 @@ async def view_video(request):
         os.makedirs(folder_paths.get_temp_directory(), exist_ok=True)
         concat_file = os.path.join(folder_paths.get_temp_directory(), "image_sequence_preview.txt")
         skip_first_images = int(query.get('skip_first_images', 0))
-        select_every_nth = int(query.get('select_every_nth', 1))
+        select_every_nth = int(query.get('select_every_nth', 1)) or 1
         valid_images = get_sorted_dir_files_from_directory(file, skip_first_images, select_every_nth, FolderOfImages.IMG_EXTENSIONS)
         if len(valid_images) == 0:
             return web.Response(status=400)
@@ -67,11 +67,11 @@ async def view_video(request):
         return web.Response(status=500)
     vfilters = []
     target_rate = float(query.get('force_rate', 0)) or base_fps
-    modified_rate = target_rate / float(query.get('select_every_nth',1))
+    modified_rate = target_rate / float(query.get('select_every_nth',1) or 1)
     start_time = 0
     if 'start_time' in query:
         start_time = float(query['start_time'])
-    elif int(query.get('skip_first_frames', 0)) > 0:
+    elif float(query.get('skip_first_frames', 0)) > 0:
         start_time = float(query.get('skip_first_frames'))/target_rate
         if start_time > 1/modified_rate:
             start_time += 1/modified_rate
@@ -87,7 +87,7 @@ async def view_video(request):
         post_seek = []
 
     args = [ffmpeg_path, "-v", "error"] + pre_seek + in_args + post_seek
-    if int(query.get('force_rate',0)) != 0:
+    if target_rate != 0:
         args += ['-r', str(modified_rate)]
     if query.get('force_size','Disabled') != "Disabled":
         size = query['force_size'].split('x')
@@ -103,8 +103,8 @@ async def view_video(request):
         vfilters.append(f"scale={size}")
     if len(vfilters) > 0:
         args += ["-vf", ",".join(vfilters)]
-    if int(query.get('frame_load_cap', 0)) > 0:
-        args += ["-frames:v", query['frame_load_cap']]
+    if float(query.get('frame_load_cap', 0)) > 0:
+        args += ["-frames:v", query['frame_load_cap'].split('.')[0]]
     #TODO:reconsider adding high frame cap/setting default frame cap on node
     if query.get('deadline', 'realtime') == 'good':
         deadline = 'good'
@@ -140,6 +140,9 @@ async def query_video(request):
     if isinstance(filepath, web.Response):
         return filepath
     filepath = filepath[0]
+    if filepath.endswith(".webp"):
+        # ffmpeg doesn't support decoding animated WebP https://trac.ffmpeg.org/ticket/4907
+        return web.json_response({})
     if filepath in query_cache and query_cache[filepath][0] == os.stat(filepath).st_mtime:
         source = query_cache[filepath][1]
     else:
@@ -159,7 +162,7 @@ async def query_video(request):
                 source['size'] = [int(match.group(1)), int(match.group(2))]
                 fps_match = re.search(", ([\\d\\.]+) fps", line)
                 if not fps_match:
-                    return web.Response(status=500)
+                    return web.json_response({})
                 source['fps'] = float(fps_match.group(1))
                 if re.search("(yuva|rgba)", line):
                     source['alpha'] = True
@@ -169,7 +172,7 @@ async def query_video(request):
 
         durs_match = re.search("Duration: (\\d+:\\d+:\\d+\\.\\d+),", lines)
         if not (durs_match and 'fps' in source):
-            return web.Response(status=500)
+            return web.json_response({})
         durs = durs_match.group(1).split(':')
         duration = int(durs[0])*360 + int(durs[1])*60 + float(durs[2])
         source['duration'] = duration
@@ -177,12 +180,12 @@ async def query_video(request):
         query_cache[filepath] = (os.stat(filepath).st_mtime, source)
     loaded = {}
     if 'duration' not in source:
-        return web.Response(status=500)
+        return web.json_response({})
     loaded['duration'] = source['duration']
     loaded['duration'] -= float(query.get('start_time',0))
     loaded['fps'] = float(query.get('force_rate', 0)) or source['fps']
     loaded['duration'] -= int(query.get('skip_first_frames', 0)) / loaded['fps']
-    loaded['fps'] /= int(query.get('select_every_nth', 1))
+    loaded['fps'] /= int(query.get('select_every_nth', 1)) or 1
     loaded['frames'] = loaded['duration'] * loaded['fps']
     return web.json_response({'source': source, 'loaded': loaded})
 
@@ -252,5 +255,5 @@ async def get_path(request):
         except OSError:
             #Broken symlinks can throw a very unhelpful "Invalid argument"
             pass
-
+    valid_items.sort(key=lambda f: os.stat(os.path.join(path,f)).st_mtime)
     return web.json_response(valid_items)
