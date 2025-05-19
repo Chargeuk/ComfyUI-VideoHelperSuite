@@ -198,7 +198,7 @@ class LoadImagesFromDirectoryPath:
     def load_images(self, directory: str, **kwargs):
         directory = strip_path(directory)
         if directory is None or validate_load_images(directory) != True:
-            raise Exception("directory is not valid: " + directory)
+            raise Exception("ChargeUK directory is not valid: " + directory)
 
         return load_images(directory, **kwargs)
     
