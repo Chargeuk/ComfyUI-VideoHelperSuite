@@ -198,7 +198,8 @@ class LoadImagesFromDirectoryPath:
     def load_images(self, directory: str, **kwargs):
         directory = strip_path(directory)
         if directory is None or validate_load_images(directory) != True:
-            raise Exception("ChargeUK directory is not valid: " + directory)
+            print("LoadImagesFromDirectoryPath directory is not valid: " + str(directory))
+            return (torch.zeros((1, 64, 64, 3), dtype=torch.float32), torch.zeros((1, 64, 64), dtype=torch.float32), 0,)
 
         return load_images(directory, **kwargs)
     
