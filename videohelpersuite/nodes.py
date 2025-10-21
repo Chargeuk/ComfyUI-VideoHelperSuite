@@ -262,9 +262,9 @@ class VideoCombine:
             }),
         }
 
-    RETURN_TYPES = ()
-    # RETURN_TYPES = ("VHS_FILENAMES",)
-    # RETURN_NAMES = ("Filenames",)
+    # RETURN_TYPES = ()
+    RETURN_TYPES = ("VHS_FILENAMES",)
+    RETURN_NAMES = ("Filenames",)
     OUTPUT_NODE = True
     CATEGORY = "Video Helper Suite 🎥🅥🅗🅢"
     FUNCTION = "combine_video"
