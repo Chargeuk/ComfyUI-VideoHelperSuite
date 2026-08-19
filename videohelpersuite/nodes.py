@@ -624,8 +624,8 @@ class VideoCombine:
                             + video_format["audio_pass"] \
                             + apad + ["-shortest", output_file_with_audio_path]
 
-                audio_data = audio['waveform'].squeeze(0).transpose(0,1) \
-                        .numpy().tobytes()
+                audio_data = audio['waveform'].detach().to(device='cpu', dtype=torch.float32) \
+                        .squeeze(0).transpose(0,1).numpy().tobytes()
                 merge_filter_args(mux_args, '-af')
                 try:
                     res = subprocess.run(mux_args, input=audio_data,
