@@ -552,7 +552,7 @@ class LoadVideoUpload:
                 "optional": {
                     "meta_batch": ("VHS_BatchManager",),
                     "vae": ("VAE",),
-                     "format": get_load_formats(),
+                     "anim_format": get_load_formats(),
                 },
                 "hidden": {
                     "force_size": "STRING",
@@ -577,6 +577,7 @@ class LoadVideoUpload:
         vts_num_workers=16,
         vts_compression_level=9,
         vts_quality=95,
+        anim_format=None,
         **kwargs,
     ):
         meta_batch = kwargs.get("meta_batch")
@@ -585,6 +586,10 @@ class LoadVideoUpload:
             meta_batch is not None and unique_id not in meta_batch.inputs
         )
         kwargs['video'] = folder_paths.get_annotated_filepath(strip_path(kwargs['video']))
+        # Keep accepting the original `format` keyword from saved/API workflows,
+        # while exposing the less ambiguous `anim_format` name in the node UI.
+        if anim_format is not None:
+            kwargs["format"] = anim_format
         result = load_video(**kwargs)
         if vts_return_type != "DiskImage":
             return result

@@ -37,7 +37,10 @@ const convDict = {
     VHS_LoadVideo : ["video", "force_rate", "force_size", "frame_load_cap", "skip_first_frames", "select_every_nth"],
     VHS_LoadVideoPath : ["video", "force_rate", "force_size", "frame_load_cap", "skip_first_frames", "select_every_nth"],
 };
-const renameDict  = {VHS_VideoCombine : {save_output : "save_image"}}
+const renameDict  = {
+    VHS_VideoCombine : {save_output : "save_image"},
+    VHS_LoadVideo : {anim_format : "format"},
+}
 function useKVState(nodeType) {
     chainCallback(nodeType.prototype, "onNodeCreated", function () {
         chainCallback(this, "onConfigure", function(info) {
@@ -667,13 +670,15 @@ function addTimestampWidget(nodeType, nodeData, targetWidget) {
     });
 }
 function initializeLoadFormat(nodeType, nodeData) {
-    if (!nodeData?.input?.optional?.format) {
+    const formatName = nodeData?.input?.optional?.anim_format ? "anim_format" : "format"
+    const formatDefinition = nodeData?.input?.optional?.[formatName]
+    if (!formatDefinition) {
         return
     }
     chainCallback(nodeType.prototype, "onNodeCreated", function() {
         let node = this
-        let formatWidget = this.widgets.find((w) => w.name === "format")
-        formatWidget.options.formats = nodeData.input.optional.format[1].formats
+        let formatWidget = this.widgets.find((w) => w.name === formatName)
+        formatWidget.options.formats = formatDefinition[1].formats
         let base = {}
         for (let widget of this.widgets) {
            if (['force_rate', 'custom_width', 'custom_height',
@@ -737,6 +742,28 @@ function initializeLoadFormat(nodeType, nodeData) {
             }
         }
     });
+}
+
+function initializeVTSLoadDefaults(nodeType, nodeData) {
+    const defaultNames = [
+        "vts_num_workers",
+        "vts_compression_level",
+        "vts_quality",
+    ]
+    if (!defaultNames.some((name) => nodeData?.input?.required?.[name])) {
+        return
+    }
+    chainCallback(nodeType.prototype, "onNodeCreated", function() {
+        for (const name of defaultNames) {
+            const widget = this.widgets?.find((candidate) => candidate.name === name)
+            const defaultValue = nodeData.input.required?.[name]?.[1]?.default
+            if (widget && defaultValue !== undefined) {
+                // Comfy may initially construct newly-added integer widgets as zero.
+                // onConfigure runs afterwards and still restores an explicitly saved value.
+                widget.value = defaultValue
+            }
+        }
+    })
 }
 
 function addUploadWidget(nodeType, nodeData, widgetName, type="video") {
@@ -1031,7 +1058,7 @@ function addVideoPreview(nodeType, isInput=true) {
                 }
                 previewWidget.value.params = {}
             }
-            if (!Object.entries(params).some(([k,v]) => previewWidget.value.params[k] !== v)) {
+            if (!force_update && !Object.entries(params).some(([k,v]) => previewWidget.value.params[k] !== v)) {
                 return
             }
             Object.assign(previewWidget.value.params, params)
@@ -1306,6 +1333,7 @@ function addFormatWidgets(nodeType, nodeData) {
 function addLoadCommon(nodeType, nodeData) {
     addVideoPreview(nodeType);
     initializeLoadFormat(nodeType, nodeData)
+    initializeVTSLoadDefaults(nodeType, nodeData)
     addPreviewOptions(nodeType);
     chainCallback(nodeType.prototype, "onNodeCreated", function() {
         //widget.callback adds unused arguements which need culling

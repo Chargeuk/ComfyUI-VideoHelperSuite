@@ -53,6 +53,22 @@ class LoadVideoDiskImageTests(unittest.TestCase):
             ),
         )
 
+    def test_upload_schema_has_vts_defaults_and_unambiguous_animation_format(self):
+        with mock.patch.object(
+            module.folder_paths,
+            "get_input_directory",
+            return_value="/input",
+        ), mock.patch.object(module.os, "listdir", return_value=[]):
+            inputs = module.LoadVideoUpload.INPUT_TYPES()
+
+        required = inputs["required"]
+        optional = inputs["optional"]
+        self.assertEqual(required["vts_num_workers"][1]["default"], 16)
+        self.assertEqual(required["vts_compression_level"][1]["default"], 9)
+        self.assertEqual(required["vts_quality"][1]["default"], 95)
+        self.assertIn("anim_format", optional)
+        self.assertNotIn("format", optional)
+
     def test_tensor_mode_preserves_original_result_without_loading_vts(self):
         images = torch.rand(2, 8, 8, 3)
         original = (images, 2, object(), {"loaded_frame_count": 2})
@@ -87,6 +103,53 @@ class LoadVideoDiskImageTests(unittest.TestCase):
         self.assertEqual(load_kwargs["skip_first_frames"], 4)
         self.assertEqual(load_kwargs["select_every_nth"], 3)
         self.assertNotIn("vts_return_type", load_kwargs)
+
+    def test_animation_format_is_forwarded_under_the_legacy_backend_name(self):
+        images = torch.rand(2, 8, 8, 3)
+        original = (images, 2, object(), {"loaded_frame_count": 2})
+        node = module.LoadVideoUpload()
+
+        with mock.patch.object(
+            module.folder_paths,
+            "get_annotated_filepath",
+            return_value="/input/selected.mp4",
+        ), mock.patch.object(
+            module,
+            "load_video",
+            return_value=original,
+        ) as load_mock:
+            result = node.load_video(
+                video="selected.mp4",
+                anim_format="Wan",
+                vts_return_type="Tensor",
+            )
+
+        self.assertIs(result, original)
+        self.assertEqual(load_mock.call_args.kwargs["format"], "Wan")
+        self.assertNotIn("anim_format", load_mock.call_args.kwargs)
+
+    def test_legacy_format_keyword_remains_supported(self):
+        images = torch.rand(2, 8, 8, 3)
+        original = (images, 2, object(), {"loaded_frame_count": 2})
+        node = module.LoadVideoUpload()
+
+        with mock.patch.object(
+            module.folder_paths,
+            "get_annotated_filepath",
+            return_value="/input/selected.mp4",
+        ), mock.patch.object(
+            module,
+            "load_video",
+            return_value=original,
+        ) as load_mock:
+            result = node.load_video(
+                video="selected.mp4",
+                format="LTXV",
+                vts_return_type="Tensor",
+            )
+
+        self.assertIs(result, original)
+        self.assertEqual(load_mock.call_args.kwargs["format"], "LTXV")
 
     def test_diskimage_saves_only_the_selected_result_frames(self):
         selected_frames = torch.rand(3, 8, 8, 3)
