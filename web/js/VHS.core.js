@@ -750,13 +750,16 @@ function initializeVTSLoadDefaults(nodeType, nodeData) {
         "vts_compression_level",
         "vts_quality",
     ]
-    if (!defaultNames.some((name) => nodeData?.input?.required?.[name])) {
+    const getDefinition = (name) => (
+        nodeData?.input?.required?.[name] ?? nodeData?.input?.optional?.[name]
+    )
+    if (!defaultNames.some((name) => getDefinition(name))) {
         return
     }
     chainCallback(nodeType.prototype, "onNodeCreated", function() {
         for (const name of defaultNames) {
             const widget = this.widgets?.find((candidate) => candidate.name === name)
-            const defaultValue = nodeData.input.required?.[name]?.[1]?.default
+            const defaultValue = getDefinition(name)?.[1]?.default
             if (widget && defaultValue !== undefined) {
                 // Comfy may initially construct newly-added integer widgets as zero.
                 // onConfigure runs afterwards and still restores an explicitly saved value.
@@ -2286,22 +2289,32 @@ app.registerExtension({
                         return [width, 20]
                     },
                     callback(v) {
-                        if (this.options.max && v > this.options.max) {
+                        if (v === null || v === undefined || v === "") {
+                            v = this.options.default ?? 0
+                        } else {
+                            v = Number(v)
+                        }
+                        if (!Number.isFinite(v)) {
+                            v = this.options.default ?? 0
+                        }
+                        if (this.options.max !== undefined && v > this.options.max) {
                             v = this.options.max
                         }
-                        if (this.options.min && v < this.options.min) {
+                        if (this.options.min !== undefined && v < this.options.min) {
                             v = this.options.min
                         }
-                        if (v == 0) {
+                        if (v === 0) {
+                            this.value = 0
                             return
                         }
-                        const s = this.options.step
+                        const s = this.options.step ?? 1
                         let sh = this.options.mod ?? 0
                         this.value = Math.round((v - sh) / s) * s + sh
                     },
                     config: inputData,
                     displayValue: function() {
-                        return this.value | 0
+                        const value = Number(this.value)
+                        return (Number.isFinite(value) ? value : this.options.default ?? 0) | 0
                     },
                     options: Object.assign({},  inputData[1])
                 }

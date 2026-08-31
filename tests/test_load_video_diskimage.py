@@ -61,13 +61,40 @@ class LoadVideoDiskImageTests(unittest.TestCase):
         ), mock.patch.object(module.os, "listdir", return_value=[]):
             inputs = module.LoadVideoUpload.INPUT_TYPES()
 
-        required = inputs["required"]
         optional = inputs["optional"]
-        self.assertEqual(required["vts_num_workers"][1]["default"], 16)
-        self.assertEqual(required["vts_compression_level"][1]["default"], 9)
-        self.assertEqual(required["vts_quality"][1]["default"], 95)
+        self.assertEqual(optional["vts_num_workers"][1]["default"], 16)
+        self.assertEqual(optional["vts_compression_level"][1]["default"], 9)
+        self.assertEqual(optional["vts_quality"][1]["default"], 95)
+        self.assertEqual(optional["vts_start_sequence"][1]["default"], 0)
+        for name in (
+            "vts_start_sequence",
+            "vts_num_workers",
+            "vts_compression_level",
+            "vts_quality",
+        ):
+            self.assertEqual(optional[name][1]["step"], 1)
+            self.assertNotIn(name, inputs["required"])
         self.assertIn("anim_format", optional)
         self.assertNotIn("format", optional)
+
+    def test_legacy_upload_call_can_omit_all_vts_fields(self):
+        images = torch.rand(2, 8, 8, 3)
+        original = (images, 2, object(), {"loaded_frame_count": 2})
+        node = module.LoadVideoUpload()
+
+        with mock.patch.object(
+            module.folder_paths,
+            "get_annotated_filepath",
+            return_value="/input/selected.mp4",
+        ), mock.patch.object(
+            module,
+            "load_video",
+            return_value=original,
+        ) as load_mock:
+            result = node.load_video(video="selected.mp4")
+
+        self.assertIs(result, original)
+        self.assertEqual(load_mock.call_args.kwargs["video"], "/input/selected.mp4")
 
     def test_tensor_mode_preserves_original_result_without_loading_vts(self):
         images = torch.rand(2, 8, 8, 3)
