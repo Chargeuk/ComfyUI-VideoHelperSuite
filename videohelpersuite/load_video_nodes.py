@@ -51,6 +51,108 @@ def get_format(format):
         return VHSLoadFormats[format]
     return nodes.VHSLoadFormats.get(format, {})
 
+
+def _get_vts_disk_image_support():
+    """Load VTS DiskImage support lazily so VHS still loads without VTS installed."""
+    try:
+        from vtsUtils import (
+            DiskImage,
+            resolve_list_mapped_output_identity,
+            save_images,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "DiskImage output requires ComfyUI-vts-nodes to be installed and loaded."
+        ) from exc
+    return DiskImage, resolve_list_mapped_output_identity, save_images
+
+
+def _save_loaded_frames_to_disk(
+    image,
+    prefix,
+    start_sequence,
+    output_dir,
+    format,
+    num_workers,
+    compression_level,
+    quality,
+    meta_batch=None,
+    unique_id=None,
+    reset_meta_batch_sequence=False,
+):
+    """Save only the frames already selected and loaded by VHS."""
+    if isinstance(image, dict):
+        raise RuntimeError(
+            "DiskImage output is unavailable when a VAE is connected because "
+            "Load Video returns LATENT data instead of IMAGE frames. Disconnect "
+            "the VAE or select Tensor output."
+        )
+    if not isinstance(image, torch.Tensor) or image.ndim != 4:
+        raise RuntimeError(
+            "DiskImage output requires loaded IMAGE frames with shape "
+            "(frames, height, width, channels)."
+        )
+
+    DiskImage, resolve_output_identity, save_images = _get_vts_disk_image_support()
+    effective_prefix, base_start_sequence = resolve_output_identity(
+        prefix,
+        start_sequence,
+    )
+
+    sequence_offsets = None
+    sequence_key = None
+    effective_start_sequence = base_start_sequence
+    if meta_batch is not None:
+        sequence_offsets = getattr(
+            meta_batch,
+            "_vhs_vts_disk_image_sequence_offsets",
+            None,
+        )
+        if sequence_offsets is None:
+            sequence_offsets = {}
+            setattr(
+                meta_batch,
+                "_vhs_vts_disk_image_sequence_offsets",
+                sequence_offsets,
+            )
+        sequence_key = (
+            unique_id,
+            effective_prefix,
+            output_dir,
+            format,
+            base_start_sequence,
+        )
+        if reset_meta_batch_sequence or sequence_key not in sequence_offsets:
+            sequence_offsets[sequence_key] = base_start_sequence
+        effective_start_sequence = sequence_offsets[sequence_key]
+
+    normalized_quality = None if quality is not None and quality > 100 else quality
+    save_images(
+        image=image,
+        prefix=effective_prefix,
+        start_sequence=effective_start_sequence,
+        output_dir=output_dir,
+        format=format,
+        num_workers=num_workers,
+        compression_level=compression_level,
+        quality=normalized_quality,
+    )
+
+    if sequence_offsets is not None:
+        sequence_offsets[sequence_key] = effective_start_sequence + len(image)
+
+    return DiskImage(
+        prefix=effective_prefix,
+        start_sequence=effective_start_sequence,
+        number_of_images=len(image),
+        output_dir=output_dir,
+        format=format,
+        image=image,
+        compression_level=compression_level,
+        quality=normalized_quality,
+    )
+
+
 def is_gif(filename) -> bool:
     file_parts = filename.split('.')
     return len(file_parts) > 1 and file_parts[-1] == "gif"
@@ -438,6 +540,14 @@ class LoadVideoUpload:
                     "frame_load_cap": ("INT", {"default": 0, "min": 0, "max": BIGMAX, "step": 1, "disable": 0}),
                     "skip_first_frames": ("INT", {"default": 0, "min": 0, "max": BIGMAX, "step": 1}),
                     "select_every_nth": ("INT", {"default": 1, "min": 1, "max": BIGMAX, "step": 1}),
+                    "vts_return_type": (["Tensor", "DiskImage"], {"default": "Tensor", "tooltip": "Return the selected loaded frames in memory, or save only those frames as a VTS DiskImage sequence."}),
+                    "vts_prefix": ("STRING", {"default": "VHS_LoadVideo", "multiline": False}),
+                    "vts_start_sequence": ("INT", {"default": 0, "min": 0}),
+                    "vts_output_dir": ("STRING", {"default": "./tmp/images", "multiline": False}),
+                    "vts_format": (["jpg", "webp", "png"], {"default": "jpg"}),
+                    "vts_num_workers": ("INT", {"default": 16, "min": 1}),
+                    "vts_compression_level": ("INT", {"default": 9, "min": 0, "max": 9, "tooltip": "PNG compression 0-9 or WebP method 0-6; ignored for JPG."}),
+                    "vts_quality": ("INT", {"default": 95, "min": 1, "max": 101, "tooltip": "JPG/WebP quality 1-100, or 101 for lossless WebP."}),
                     },
                 "optional": {
                     "meta_batch": ("VHS_BatchManager",),
@@ -457,9 +567,42 @@ class LoadVideoUpload:
 
     FUNCTION = "load_video"
 
-    def load_video(self, **kwargs):
+    def load_video(
+        self,
+        vts_return_type="Tensor",
+        vts_prefix="VHS_LoadVideo",
+        vts_start_sequence=0,
+        vts_output_dir="./tmp/images",
+        vts_format="jpg",
+        vts_num_workers=16,
+        vts_compression_level=9,
+        vts_quality=95,
+        **kwargs,
+    ):
+        meta_batch = kwargs.get("meta_batch")
+        unique_id = kwargs.get("unique_id")
+        reset_meta_batch_sequence = (
+            meta_batch is not None and unique_id not in meta_batch.inputs
+        )
         kwargs['video'] = folder_paths.get_annotated_filepath(strip_path(kwargs['video']))
-        return load_video(**kwargs)
+        result = load_video(**kwargs)
+        if vts_return_type != "DiskImage":
+            return result
+
+        disk_image = _save_loaded_frames_to_disk(
+            image=result[0],
+            prefix=vts_prefix,
+            start_sequence=vts_start_sequence,
+            output_dir=vts_output_dir,
+            format=vts_format,
+            num_workers=vts_num_workers,
+            compression_level=vts_compression_level,
+            quality=vts_quality,
+            meta_batch=meta_batch,
+            unique_id=unique_id,
+            reset_meta_batch_sequence=reset_meta_batch_sequence,
+        )
+        return (disk_image, *result[1:])
 
     @classmethod
     def IS_CHANGED(s, video, **kwargs):
