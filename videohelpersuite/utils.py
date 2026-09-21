@@ -256,6 +256,10 @@ def get_audio(file, start_time=0, duration=0):
     return {'waveform': audio, 'sample_rate': ar}
 
 class LazyAudioMap(Mapping):
+    def to_disk_audio(self):
+        from .disk_audio import disk_audio_from_file
+        return disk_audio_from_file(self.file, self.start_time, self.duration, allow_missing=True)
+
     def __init__(self, file, start_time, duration):
         self.file = file
         self.start_time=start_time

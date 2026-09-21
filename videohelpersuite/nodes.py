@@ -31,7 +31,7 @@ if 'VHS_video_formats' not in folder_paths.folder_names_and_paths:
     folder_paths.folder_names_and_paths["VHS_video_formats"] = ((),{".json"})
 if len(folder_paths.folder_names_and_paths['VHS_video_formats'][1]) == 0:
     folder_paths.folder_names_and_paths["VHS_video_formats"][1].add(".json")
-audio_extensions = ['mp3', 'mp4', 'wav', 'ogg']
+audio_extensions = ['mp3', 'mp4', 'wav', 'ogg', 'opus', 'flac', 'm4a']
 
 def flatten_list(l):
     ret = []
@@ -594,6 +594,11 @@ class VideoCombine:
             output_files.append(file_path)
 
 
+            audio_file_args = None
+            if audio is not None and hasattr(audio, "ffmpeg_input_args"):
+                audio_file_args = audio.ffmpeg_input_args()
+                if audio_file_args is None:
+                    audio = audio.materialize(device="cpu")
             a_waveform = None
             if audio is not None:
                 try:
@@ -614,19 +619,24 @@ class VideoCombine:
                 #TODO: expose audio quality options if format widgets makes it in
                 #Reconsider forcing apad/shortest
                 channels = audio['waveform'].size(1)
+                if audio['waveform'].size(0) != 1:
+                    raise ValueError('Video Combine requires one audio clip; select a batch item before muxing')
                 min_audio_dur = total_frames_output / frame_rate + 1
                 if video_format.get('trim_to_audio', 'False') != 'False':
                     apad = []
                 else:
                     apad = ["-af", "apad=whole_dur="+str(min_audio_dur)]
-                mux_args = [ffmpeg_path, "-v", "error", "-n", "-i", file_path,
-                            "-ar", str(audio['sample_rate']), "-ac", str(channels),
-                            "-f", "f32le", "-i", "-", "-c:v", "copy"] \
+                audio_input = audio_file_args or ["-ar", str(audio['sample_rate']), "-ac", str(channels),
+                                                  "-f", "f32le", "-i", "-"]
+                mux_args = [ffmpeg_path, "-v", "error", "-n", "-i", file_path] + audio_input + [
+                            "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy"] \
                             + video_format["audio_pass"] \
                             + apad + ["-shortest", output_file_with_audio_path]
 
-                audio_data = audio['waveform'].detach().to(device='cpu', dtype=torch.float32) \
-                        .squeeze(0).transpose(0,1).numpy().tobytes()
+                audio_data = None
+                if audio_file_args is None:
+                    audio_data = audio['waveform'].detach().to(device='cpu', dtype=torch.float32) \
+                            .squeeze(0).transpose(0,1).numpy().tobytes()
                 merge_filter_args(mux_args, '-af')
                 try:
                     res = subprocess.run(mux_args, input=audio_data,
@@ -664,7 +674,7 @@ class LoadAudio:
         #Hide ffmpeg formats if ffmpeg isn't available
         return {
             "required": {
-                "audio_file": ("STRING", {"default": "input/", "vhs_path_extensions": ['wav','mp3','ogg','m4a','flac']}),
+                "audio_file": ("STRING", {"default": "input/", "vhs_path_extensions": ['wav','mp3','ogg','m4a','flac','opus']}),
                 },
             "optional" : {
                 "seek_seconds": ("FLOAT", {"default": 0, "min": 0, "widgetType": "VHSTIMESTAMP"}),
@@ -1035,6 +1045,8 @@ class Unbatch(IO.ComfyNode):
 
     @classmethod
     async def execute(cls, batched):
+        # DiskAudio uses metadata-only waveform descriptors; concatenation needs samples.
+        batched = [item.materialize() if hasattr(item, 'ffmpeg_input_args') else item for item in batched]
         if isinstance(batched[0], torch.Tensor):
             return (torch.cat(batched),)
         if isinstance(batched[0], dict):
